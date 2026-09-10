@@ -1,0 +1,78 @@
+# La version du format docker-compose
+version: '3.8'
+
+services:
+
+  # ── SERVICE 1 : L'API NestJS ────────────────────────────────────────────────
+  api:
+    build: .                          # Docker utilise le Dockerfile dans le dossier courant
+    container_name: api-secretaire
+    ports:
+      - "3000:3000"                   # port local:port conteneur
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgresql://postgres:MonMotDePasse123@postgres:5432/secretaire_medicale_dev"
+      JWT_SECRET: mon_super_secret_jwt_change_moi_en_prod
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: mon_super_secret_refresh_change_moi
+      JWT_REFRESH_EXPIRES_IN: 7d
+      REDIS_HOST: redis             # nom du service Redis ci-dessous (Docker résout automatiquement)
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy  # attend que PostgreSQL soit prêt avant de démarrer
+      redis:
+        condition: service_healthy  # attend que Redis soit prêt
+    networks:
+      - secretaire-network
+
+  # ── SERVICE 2 : PostgreSQL ──────────────────────────────────────────────────
+  postgres:
+    image: postgres:15              # image officielle PostgreSQL version 15
+    container_name: pg-secretaire-compose
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: MonMotDePasse123
+      POSTGRES_DB: secretaire_medicale_dev
+    ports:
+      - "5433:5432"                 # port 5433 en local pour ne pas confliter avec ton Docker existant
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # les données persistent même si le conteneur redémarre
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - secretaire-network
+
+  # ── SERVICE 3 : Redis ───────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine           # image officielle Redis, version légère
+    container_name: redis-secretaire-compose
+    ports:
+      - "6380:6379"                 # port 6380 en local pour ne pas confliter
+    volumes:
+      - redis_data:/data            # les données Redis persistent
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - secretaire-network
+
+# ── VOLUMES ────────────────────────────────────────────────────────────────────
+# Docker crée des espaces de stockage persistants pour les données
+volumes:
+  postgres_data:
+  redis_data:
+
+# ── RÉSEAU ─────────────────────────────────────────────────────────────────────
+# Un réseau interne permet aux services de se parler par leur nom (api, postgres, redis)
+networks:
+  secretaire-network:
+    driver: bridge
